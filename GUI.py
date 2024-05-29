@@ -37,17 +37,14 @@ class MainWindow(QMainWindow):
 
         # Group box for all ADC settings
         self.settings_group = QGroupBox("ADC Settings")
-        self.settings_layout = QVBoxLayout()
+        self.settings_layout = QHBoxLayout()
         self.settings_group.setLayout(self.settings_layout)
 
-        # Create horizontal layout for ADC Sample Rate, Channel Selection, and RAM Size
-        self.settings_row_layout = QHBoxLayout()
-
         # Create start button
-        self.start_button = QPushButton("START")
-        self.start_button.setCheckable(True)
-        self.start_button.setStyleSheet("QPushButton {background-color: green;}")
-        self.start_button.setFixedSize(60, 30)
+        self.start_plot_button = QPushButton("START Plot")
+        self.start_plot_button.setCheckable(True)
+        self.start_plot_button.setStyleSheet("QPushButton {background-color: green;}")
+        self.start_plot_button.setFixedSize(90, 30)
 
         # ComboBox for ADC sample rate selection
         self.adc_sr_group = QGroupBox("ADC Sample Rate")
@@ -75,20 +72,23 @@ class MainWindow(QMainWindow):
         self.channel_group.setLayout(self.channel_layout)
 
         # Add settings to the horizontal layout
-        self.settings_row_layout.addWidget(self.start_button)
-        self.settings_row_layout.addWidget(self.adc_sr_group)
-        self.settings_row_layout.addWidget(self.channel_group)
-
-        # Add the horizontal layout to the settings layout
-        self.settings_layout.addLayout(self.settings_row_layout)
+        self.settings_layout.addWidget(self.start_plot_button)
+        self.settings_layout.addWidget(self.adc_sr_group)
+        self.settings_layout.addWidget(self.channel_group)
 
         # Add the settings group box to the main layout
         self.main_layout.addWidget(self.settings_group)
 
         # Create DAC-BRAM settings group box
         self.dac_bram_group = QGroupBox("DAC-BRAM Settings")
-        self.dac_bram_layout = QVBoxLayout()
+        self.dac_bram_layout = QHBoxLayout()
         self.dac_bram_group.setLayout(self.dac_bram_layout)
+
+        # Create start button
+        self.start_sweep_button = QPushButton("START Sweep")
+        self.start_sweep_button.setCheckable(True)
+        self.start_sweep_button.setStyleSheet("QPushButton {background-color: green;}")
+        self.start_sweep_button.setFixedSize(95, 30)
 
         # Signal type checkboxes with additional inputs
         self.signal_group = QGroupBox("Signal Type and Parameters")
@@ -145,6 +145,7 @@ class MainWindow(QMainWindow):
         self.signal_button_group.addButton(self.sawtooth_button)
 
         # Add the signal group box to the DAC-BRAM layout
+        self.dac_bram_layout.addWidget(self.start_sweep_button)
         self.dac_bram_layout.addWidget(self.signal_group)
 
         # Add the DAC-BRAM group box to the main layout
@@ -166,33 +167,38 @@ class MainWindow(QMainWindow):
         self.main_layout.addWidget(self.plot_widget)
 
         # Connect signal to slot
-        self.start_button.clicked.connect(self.button_clicked)
+        self.start_plot_button.clicked.connect(self.button_clicked)
+        self.start_sweep_button.clicked.connect(self.sweep_button_clicked)
         self.sine_button.toggled.connect(self.update_signal_options)
         self.squareroot_button.toggled.connect(self.update_signal_options)
         self.sawtooth_button.toggled.connect(self.update_signal_options)
 
         self.update_signal_options()
 
-
-
     @pyqtSlot()
     def button_clicked(self):
-        if self.start_button.isChecked():
-            self.start_button.setText("STOP")
-            self.start_button.setStyleSheet("QPushButton {background-color: red;}")
+        if self.start_plot_button.isChecked():
+            self.start_plot_button.setText("STOP Plot")
+            self.start_plot_button.setStyleSheet("QPushButton {background-color: red;}")
             self.set_settings_enabled(False)
             sample_rate, signal, start_V, stop_V = self.get_values()
             self.plot_graph_ch1.clear()
             self.plot_graph_ch2.clear()
-            self.adcreceiverthread = AdcReceiverThread(sample_rate, signal, start_V, stop_V)
-            self.adcreceiverthread.dataReceived.connect(self.update_plot)
-            self.adcreceiverthread.start()
-            
         else:
-            self.start_button.setText("START")
-            self.start_button.setStyleSheet("QPushButton {background-color: green;}")
+            self.start_plot_button.setText("START Plot")
+            self.start_plot_button.setStyleSheet("QPushButton {background-color: green;}")
             self.set_settings_enabled(True)
-            self.adcreceiverthread.terminate()
+
+    def sweep_button_clicked(self):
+        if self.start_sweep_button.isChecked():
+            self.start_sweep_button.setText("STOP Sweep")
+            self.start_sweep_button.setStyleSheet("QPushButton {background-color: red;}")
+            self.set_dac_enabled(False)
+        else:
+            self.start_sweep_button.setText("START Sweep")
+            self.start_sweep_button.setStyleSheet("QPushButton {background-color: green;}")
+            self.set_dac_enabled(True)
+
 
     def get_values(self):
         self.selected_adc_sr = float(self.adc_sr_menu.currentText().split()[0])
@@ -219,12 +225,15 @@ class MainWindow(QMainWindow):
         self.channel1_button.setEnabled(enabled)
         self.channel2_button.setEnabled(enabled)
         self.both_button.setEnabled(enabled)
+
+    def set_dac_enabled(self, enabled):
         self.sine_button.setEnabled(enabled)
         self.squareroot_button.setEnabled(enabled)
         self.sawtooth_button.setEnabled(enabled)
-        self.amplitude_input.setEnabled(enabled)
-        self.start_voltage_input.setEnabled(enabled)
-        self.stop_voltage_input.setEnabled(enabled)
+        self.amplitude_input.setEnabled(enabled and self.sine_button.isChecked())
+        self.start_voltage_input.setEnabled(enabled and (self.squareroot_button.isChecked() or self.sawtooth_button.isChecked()))
+        self.stop_voltage_input.setEnabled(enabled and (self.squareroot_button.isChecked() or self.sawtooth_button.isChecked()))
+
 
     @pyqtSlot(str)  
     def validate_amplitude(self, text):
