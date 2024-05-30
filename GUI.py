@@ -1,25 +1,17 @@
 import sys
 import numpy as np
 import pyqtgraph as pg
-from PyQt6.QtWidgets import (QApplication, 
-                             QMainWindow, 
-                             QPushButton, 
-                             QVBoxLayout, 
-                             QWidget,
-                             QCheckBox,
-                             QHBoxLayout,
-                             QButtonGroup,
-                             QComboBox,
-                             QGroupBox,
-                             QLineEdit,
-                             QLabel,
-)   
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget, 
+                             QCheckBox, QHBoxLayout, QButtonGroup, QComboBox, QGroupBox, 
+                             QLineEdit, QLabel)
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtGui import QDoubleValidator
 
+# Make sure to import these correctly
 from rp.adc.helpers import unpackADCData
 from source import *
-from AdcReceiver import AdcReceiverThread 
+from AdcReceiver import *
+from rp.constants import ALL_BRAM_DAC_PORTS
 
 verbose = False
 
@@ -30,13 +22,12 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Data Acquisition in Block Mode")
         self.setFixedSize(800, 800)
 
-        # Create widget object
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
         # Group box for all ADC settings
-        self.settings_group = QGroupBox("ADC Settings")
+        self.settings_group = QGroupBox("ADC Receiver Settings")
         self.settings_layout = QHBoxLayout()
         self.settings_group.setLayout(self.settings_layout)
 
@@ -71,10 +62,40 @@ class MainWindow(QMainWindow):
         self.channel_layout.addWidget(self.both_button)
         self.channel_group.setLayout(self.channel_layout)
 
+        # Add adc mode (sync oder async)
+        self.mode_group = QGroupBox("ADC Mode")
+        self.mode_layout = QVBoxLayout()
+        self.mode_button_group = QButtonGroup(self)
+        self.async_mode_button = QCheckBox("Async")
+        self.sync_mode_button = QCheckBox("Sync")
+        self.sync_mode_button.setChecked(True)
+        self.mode_button_group.addButton(self.async_mode_button)
+        self.mode_button_group.addButton(self.sync_mode_button)
+        self.mode_layout.addWidget(self.async_mode_button)
+        self.mode_layout.addWidget(self.sync_mode_button)
+        self.mode_group.setLayout(self.mode_layout)
+
+        # Add required time to write the RAM 
+        self.time_group = QGroupBox("Time to write RAM in ms")
+        self.time_layout = QVBoxLayout(self.time_group)
+        self.time_menu = QComboBox()
+        possible_time = [10, 20, 50, 100, 200]
+        for time in possible_time:
+            self.time_menu.addItem(f"{time} ms")
+        self.output_ram_size_layout = QHBoxLayout()
+        self.output_text = QLabel("RAM Size:")
+        self.output_ram_size = QLabel()
+        self.output_ram_size_layout.addWidget(self.output_text)
+        self.output_ram_size_layout.addWidget(self.output_ram_size)
+        self.time_layout.addWidget(self.time_menu)
+        self.time_layout.addLayout(self.output_ram_size_layout)
+
         # Add settings to the horizontal layout
         self.settings_layout.addWidget(self.start_plot_button)
         self.settings_layout.addWidget(self.adc_sr_group)
         self.settings_layout.addWidget(self.channel_group)
+        self.settings_layout.addWidget(self.mode_group)
+        self.settings_layout.addWidget(self.time_group)
 
         # Add the settings group box to the main layout
         self.main_layout.addWidget(self.settings_group)
@@ -108,7 +129,7 @@ class MainWindow(QMainWindow):
         self.signal_layout.addLayout(self.sine_layout)
 
         self.squareroot_layout = QHBoxLayout()
-        self.squareroot_button = QCheckBox("Square root")
+        self.squareroot_button = QCheckBox("Square Root")
         self.start_voltage_label = QLabel("Start Voltage:")
         self.start_voltage_input = QLineEdit()
         self.stop_voltage_label = QLabel("Stop Voltage:")
@@ -120,7 +141,6 @@ class MainWindow(QMainWindow):
         self.squareroot_layout.addWidget(self.stop_voltage_input)
         self.signal_layout.addLayout(self.squareroot_layout)
 
-
         self.amplitude_input.setValidator(QDoubleValidator())
         self.start_voltage_input.setValidator(QDoubleValidator())
         self.stop_voltage_input.setValidator(QDoubleValidator())
@@ -129,7 +149,6 @@ class MainWindow(QMainWindow):
         self.amplitude_input.textChanged.connect(self.validate_amplitude)
         self.start_voltage_input.textChanged.connect(self.validate_start_voltage)
         self.stop_voltage_input.textChanged.connect(self.validate_stop_voltage)
-
 
         self.sawtooth_layout = QHBoxLayout()
         self.sawtooth_button = QCheckBox("Sawtooth")
@@ -155,13 +174,14 @@ class MainWindow(QMainWindow):
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.showGrid(True, True)
         self.plot_widget.setLabel('left', 'Voltage', units='V')
-        self.plot_widget.setLabel('bottom', 'time', )
+        self.plot_widget.setLabel('bottom', 'time', units='s')
         self.plot_widget.addLegend()
 
-        self.y_data_ch1 = np.ones(len(range(1000)))
-        self.plot_graph_ch1 = self.plot_widget.plot(self.y_data_ch1, pen='r', name='Channel 1')
-        self.y_data_ch2 = np.ones(len(range(1000)))
-        self.plot_graph_ch2 = self.plot_widget.plot(self.y_data_ch2, pen='b', name='Channel2')
+        self.x_data = np.zeros(1000)
+        self.y_data_ch1 = np.zeros(1000)
+        self.plot_graph_ch1 = self.plot_widget.plot(self.x_data, self.y_data_ch1, pen='r', name='Channel 1')
+        self.y_data_ch2 = np.zeros(1000)
+        self.plot_graph_ch2 = self.plot_widget.plot(self.x_data, self.y_data_ch2, pen='b', name='Channel 2')
 
         # Add the plot widget to the main layout
         self.main_layout.addWidget(self.plot_widget)
@@ -181,44 +201,57 @@ class MainWindow(QMainWindow):
             self.start_plot_button.setText("STOP Plot")
             self.start_plot_button.setStyleSheet("QPushButton {background-color: red;}")
             self.set_settings_enabled(False)
-            sample_rate, signal, start_V, stop_V = self.get_values()
+            self.sample_rate, self.mode = self.get_adc_config()
             self.plot_graph_ch1.clear()
             self.plot_graph_ch2.clear()
+            self.adcreceiver = AdcReceiverThread(self.sample_rate, self.mode)
+            self.adcreceiver.dataReceived.connect(self.update_plot)
+            self.adcreceiver.start()
         else:
             self.start_plot_button.setText("START Plot")
             self.start_plot_button.setStyleSheet("QPushButton {background-color: green;}")
             self.set_settings_enabled(True)
+            self.adcreceiver.terminate()
 
+    @pyqtSlot()
     def sweep_button_clicked(self):
         if self.start_sweep_button.isChecked():
             self.start_sweep_button.setText("STOP Sweep")
             self.start_sweep_button.setStyleSheet("QPushButton {background-color: red;}")
-            self.set_dac_enabled(False)
+            signal, start_V, stop_V = self.get_dac_config()
+            self.dacbramconfigurator = DacBramConfigurator(signal, start_V, stop_V)
+            self.dacbramconfigurator.start()
+            pita.start_dac_sweep(ALL_BRAM_DAC_PORTS)
         else:
             self.start_sweep_button.setText("START Sweep")
             self.start_sweep_button.setStyleSheet("QPushButton {background-color: green;}")
-            self.set_dac_enabled(True)
+            self.dacbramconfigurator.terminate()
+            pita.stop_dac_sweep()
 
+    def get_adc_config(self):
+        sample_rate = float(self.adc_sr_menu.currentText().split()[0])
+        if self.sync_mode_button.isChecked():
+            mode = "Sync"
+        else:
+            mode = "Async"
+        
+        return sample_rate, mode
 
-    def get_values(self):
-        self.selected_adc_sr = float(self.adc_sr_menu.currentText().split()[0])
+    def get_dac_config(self):
         if self.sine_button.isChecked():
-            self.signal_type = "Sine"
-            self.amplitude = float(self.amplitude_input.text())
-
+            signal_type = "Sine"
+            amplitude = float(self.amplitude_input.text())
+            return signal_type, amplitude, 0
         elif self.squareroot_button.isChecked():
-            self.signal_type = "Square Root"
-            self.start_V = float(self.start_voltage_input.text())
-            self.stop_V = float(self.stop_voltage_input.text())
-
+            signal_type = "Square Root"
+            start_V = float(self.start_voltage_input.text())
+            stop_V = float(self.stop_voltage_input.text())
+            return signal_type, start_V, stop_V
         elif self.sawtooth_button.isChecked():
-            self.signal_type = "Sawtooth"
-            self.start_V = float(self.start_voltage_input.text())
-            self.stop_V = float(self.stop_voltage_input.text())
-
-        if self.signal_type == "Sine":
-            return self.selected_adc_sr, self.signal_type, self.amplitude, 0
-        return self.selected_adc_sr, self.signal_type, self.start_V, self.stop_V
+            signal_type = "Sawtooth"
+            start_V = float(self.start_voltage_input.text())
+            stop_V = float(self.stop_voltage_input.text())
+            return signal_type, start_V, stop_V
 
     def set_settings_enabled(self, enabled):
         self.adc_sr_menu.setEnabled(enabled)
@@ -226,16 +259,7 @@ class MainWindow(QMainWindow):
         self.channel2_button.setEnabled(enabled)
         self.both_button.setEnabled(enabled)
 
-    def set_dac_enabled(self, enabled):
-        self.sine_button.setEnabled(enabled)
-        self.squareroot_button.setEnabled(enabled)
-        self.sawtooth_button.setEnabled(enabled)
-        self.amplitude_input.setEnabled(enabled and self.sine_button.isChecked())
-        self.start_voltage_input.setEnabled(enabled and (self.squareroot_button.isChecked() or self.sawtooth_button.isChecked()))
-        self.stop_voltage_input.setEnabled(enabled and (self.squareroot_button.isChecked() or self.sawtooth_button.isChecked()))
-
-
-    @pyqtSlot(str)  
+    @pyqtSlot(str)
     def validate_amplitude(self, text):
         if text:
             try:
@@ -288,22 +312,21 @@ class MainWindow(QMainWindow):
         )
         self.y_data_ch1 = data[0]
         self.y_data_ch2 = data[1]
+        
+        total_samples = len(self.y_data_ch1)  # both channels have the same number of samples
+        total_time = total_samples / (self.sample_rate * 1e6)  # Convert sample rate from MHz to Hz
+        self.x_data = np.linspace(0, total_time, total_samples)
 
         if self.channel1_button.isChecked():
-            self.plot_graph_ch1.setData(self.y_data_ch1)
+            self.plot_graph_ch1.setData(self.x_data, self.y_data_ch1)
         elif self.channel2_button.isChecked():
-            self.plot_graph_ch2.setData(self.y_data_ch2)
+            self.plot_graph_ch2.setData(self.x_data, self.y_data_ch2)
         else:
-            self.plot_graph_ch1.setData(self.y_data_ch1)
-            self.plot_graph_ch2.setData(self.y_data_ch2)
-            
+            self.plot_graph_ch1.setData(self.x_data, self.y_data_ch1)
+            self.plot_graph_ch2.setData(self.x_data, self.y_data_ch2)
 
-
-def start():
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
-
-if __name__ == "__main__":
-    start()
