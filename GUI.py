@@ -194,6 +194,7 @@ class MainWindow(QMainWindow):
         self.sawtooth_button.toggled.connect(self.update_signal_options)
 
         self.update_signal_options()
+        self.display_ram_size()
 
     @pyqtSlot()
     def button_clicked(self):
@@ -258,6 +259,12 @@ class MainWindow(QMainWindow):
         self.channel1_button.setEnabled(enabled)
         self.channel2_button.setEnabled(enabled)
         self.both_button.setEnabled(enabled)
+        self.sync_mode_button.setEnabled(enabled)
+        self.async_mode_button.setEnabled(enabled)
+        self.time_menu.setEnabled(enabled)
+
+    def display_ram_size(self):
+        pass
 
     @pyqtSlot(str)
     def validate_amplitude(self, text):
