@@ -19,6 +19,7 @@ from rp.adc.helpers import unpackADCData
 from AdcReceiver import AdcReceiverThread, pita
 from rp.constants import RP_DAC_PORT_1, RP_DAC_PORT_2, ALL_BRAM_DAC_PORTS
 from DacBramSettings import StartStopButton, DacBramSettingsTab
+from source import stop_sweep
 
 
 class MainWindow(QMainWindow):
@@ -127,7 +128,9 @@ class MainWindow(QMainWindow):
         self.group_layout.addWidget(self.tab_widget)
 
         self.tab1 = DacBramSettingsTab(self.adcreceiver, channel=0)
+        self.tab1.restart_adc.connect(self.update_adc_config)
         self.tab2 = DacBramSettingsTab(self.adcreceiver, channel=1)
+        self.tab2.restart_adc.connect(self.update_adc_config)
 
         self.tab_widget.addTab(self.tab1, "PORT0")
         self.tab_widget.addTab(self.tab2, "PORT1")
@@ -182,8 +185,9 @@ class MainWindow(QMainWindow):
                 self.mode,
                 self.adc_sync_dac_steps,
                 self.adc_sync_dac_dwell_time_ms,
-            )
+                )
             self.adcreceiver.start()
+                
         else:
             self.adcreceiver.stop()
 
@@ -226,15 +230,15 @@ class MainWindow(QMainWindow):
             self.adcreceiver.stop()
             self.adcreceiver.wait()
 
-        reset_voltage_port1 = self.tab1.get_reset_voltage()
-        reset_voltage_port2 = self.tab2.get_reset_voltage()
+        # reset_voltage_port1 = self.tab1.get_reset_voltage()
+        # reset_voltage_port2 = self.tab2.get_reset_voltage()
 
+        # stop_sweep(pita, RP_DAC_PORT_1, reset_voltage_port1)
+        # stop_sweep(pita, RP_DAC_PORT_2, reset_voltage_port2)
         pita.stop_dac_sweep(port=ALL_BRAM_DAC_PORTS)
-        pita.set_voltage_rp_dac(RP_DAC_PORT_1, reset_voltage_port1)
-        pita.set_voltage_rp_dac(RP_DAC_PORT_2, reset_voltage_port2)
-
         pita.close()
-        event.accept()
+
+        event.accpet()
 
     def restart_adc_receiver(self):
         if self.adcreceiver.isRunning():
@@ -247,6 +251,7 @@ class MainWindow(QMainWindow):
             self.adc_sync_dac_dwell_time_ms,
         )
         self.adcreceiver.start()
+            
 
 
 if __name__ == "__main__":
