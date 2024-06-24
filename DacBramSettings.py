@@ -209,6 +209,7 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.port_layout.addWidget(self.frequency_box)
 
         # Connect signals to slots
+        #####################################################################
         self.start_sweep_button.clicked.connect(self.sweep_button_clicked)
         self.sine_button.toggled.connect(self.update_signal_options)
         self.squareroot_button.toggled.connect(self.update_signal_options)
@@ -248,6 +249,7 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
             self.update_dac_config
         )
         self.dac_sample_rate_button.toggled.connect(self.update_dac_config)
+        ###########################################################################
 
         # Display settings as soon as the GUI starts
         self.update_signal_options()
@@ -352,7 +354,6 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
                 self.dwell_time_ms = 1 / (self.signal_frequency * self.dac_steps)
 
         self.show_dwell_time_ms_label.setText(str(self.dwell_time_ms))
-        return self.dac_steps, self.dwell_time_ms
 
     @pyqtSlot(str)
     def validate_dac_steps(self, text):
