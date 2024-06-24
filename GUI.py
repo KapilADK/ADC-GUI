@@ -3,13 +3,23 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import pyqtSlot
 from PyQt6.QtWidgets import (
-    QVBoxLayout, QCheckBox, QHBoxLayout, QButtonGroup, QComboBox, QGroupBox,
-    QLabel, QApplication, QMainWindow, QWidget, QTabWidget
+    QVBoxLayout,
+    QCheckBox,
+    QHBoxLayout,
+    QButtonGroup,
+    QComboBox,
+    QGroupBox,
+    QLabel,
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QTabWidget,
 )
 from rp.adc.helpers import unpackADCData
 from AdcReceiver import AdcReceiverThread, pita
 from rp.constants import RP_DAC_PORT_1, RP_DAC_PORT_2, ALL_BRAM_DAC_PORTS
 from DacBramSettings import StartStopButton, DacBramSettingsTab
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -21,18 +31,22 @@ class MainWindow(QMainWindow):
 
         self.adc_sample_rate = None
         self.mode = None
-        self.dac_steps = None
-        self.dwell_time_ms = None
+        self.adc_sync_dac_steps = None
+        self.adc_sync_dac_dwell_time_ms = None
 
-        self.adcreceiver = AdcReceiverThread()  # Initialize adcreceiver here
+        self.adcreceiver = AdcReceiverThread()  # Initialize adcreceiver
         self.adcreceiver.dataReceived.connect(self.update_plot)
 
+        # Create Adc and Dac settings tab with pyqtgraph
         self.create_adc_settings_group()
         self.create_dac_bram_group()
         self.create_plot_widget()
 
+        # Connect signals from Adc Settings to slot
         self.start_plot_button.clicked.connect(self.start_button_clicked)
-        self.adc_sample_rate_combobox.currentIndexChanged.connect(self.update_adc_config)
+        self.adc_sample_rate_combobox.currentIndexChanged.connect(
+            self.update_adc_config
+        )
         self.sync_mode_button.toggled.connect(self.update_adc_config)
 
     def create_adc_settings_group(self):
@@ -40,25 +54,60 @@ class MainWindow(QMainWindow):
         self.adc_settings_layout = QHBoxLayout(self.adc_settings_box)
         self.main_layout.addWidget(self.adc_settings_box)
 
+        # Add start button
         self.start_plot_button = StartStopButton()
         self.adc_settings_layout.addWidget(self.start_plot_button)
 
-        self.adc_sample_rate_box, self.adc_sample_rate_combobox = self.create_combobox_group(
-            "ADC Sample Rate", [f"{sr} MHz" for sr in [125, 62.5, 31.25, 25, 15.625, 12.5, 7.8125, 6.25, 5, 3.90625, 3.125, 2.5, 1.25, 1, 0.625, 0.5]]
+        # Combobox to select Adc Samplerate
+        self.adc_sample_rate_box, self.adc_sample_rate_combobox = (
+            self.create_combobox_group(
+                "ADC Sample Rate",
+                [
+                    f"{sr} MHz"
+                    for sr in [
+                        125,
+                        62.5,
+                        31.25,
+                        25,
+                        15.625,
+                        12.5,
+                        7.8125,
+                        6.25,
+                        5,
+                        3.90625,
+                        3.125,
+                        2.5,
+                        1.25,
+                        1,
+                        0.625,
+                        0.5,
+                    ]
+                ],
+            )
         )
         self.adc_settings_layout.addWidget(self.adc_sample_rate_box)
 
-        self.channel_box, self.channel_layout, self.channel_button_group = self.create_checkbox_group(
-            "Channel Selection", ["Channel 1", "Channel 2", "Both"]
+        # Channel checkbox for selecting channel
+        self.channel_box, self.channel_layout, self.channel_button_group = (
+            self.create_checkbox_group(
+                "Channel Selection",
+                ["Channel 1", "Channel 2", "Both"],
+                default_checked="Channel 1",
+            )
         )
         self.adc_settings_layout.addWidget(self.channel_box)
 
-        self.mode_box, self.mode_layout, self.mode_button_group = self.create_checkbox_group(
-            "ADC Mode", ["Async", "Sync"], default_checked="Sync"
+        # Mode checkbox to select either sync or async mode
+        self.mode_box, self.mode_layout, self.mode_button_group = (
+            self.create_checkbox_group(
+                "ADC Mode", ["Async", "Sync"], default_checked="Sync"
+            )
         )
-        self.sync_mode_button = self.mode_button_group.buttons()[1]  # Sync button
+
+        self.sync_mode_button = self.mode_button_group.buttons()[1]
         self.adc_settings_layout.addWidget(self.mode_box)
 
+        # Not implemented right now........
         self.time_group, self.time_menu = self.create_combobox_group(
             "Time to write RAM in ms", [f"{time} ms" for time in [10, 20, 50, 100, 200]]
         )
@@ -92,9 +141,13 @@ class MainWindow(QMainWindow):
 
         self.x_data = np.zeros(1000)
         self.y_data_ch1 = np.zeros(1000)
-        self.plot_graph_ch1 = self.plot_widget.plot(self.x_data, self.y_data_ch1, pen="r", name="Channel 1")
+        self.plot_graph_ch1 = self.plot_widget.plot(
+            self.x_data, self.y_data_ch1, pen="r", name="Channel 1"
+        )
         self.y_data_ch2 = np.zeros(1000)
-        self.plot_graph_ch2 = self.plot_widget.plot(self.x_data, self.y_data_ch2, pen="b", name="Channel 2")
+        self.plot_graph_ch2 = self.plot_widget.plot(
+            self.x_data, self.y_data_ch2, pen="b", name="Channel 2"
+        )
 
         self.main_layout.addWidget(self.plot_widget, stretch=1)
 
@@ -124,7 +177,12 @@ class MainWindow(QMainWindow):
         self.start_plot_button.toggle_button()
         if self.start_plot_button.isChecked():
             self.get_adc_config()
-            self.adcreceiver.set_parameters(self.adc_sample_rate, self.mode, self.dac_steps, self.dwell_time_ms)
+            self.adcreceiver.set_parameters(
+                self.adc_sample_rate,
+                self.mode,
+                self.adc_sync_dac_steps,
+                self.adc_sync_dac_dwell_time_ms,
+            )
             self.adcreceiver.start()
         else:
             self.adcreceiver.stop()
@@ -135,9 +193,14 @@ class MainWindow(QMainWindow):
             self.restart_adc_receiver()
 
     def get_adc_config(self):
-        self.adc_sample_rate = float(self.adc_sample_rate_combobox.currentText().split()[0])
+        self.adc_sample_rate = float(
+            self.adc_sample_rate_combobox.currentText().split()[0]
+        )
         self.mode = "Sync" if self.sync_mode_button.isChecked() else "Async"
-        self.dac_steps, self.dwell_time_ms = self.tab1.get_frequency_info()
+        self.adc_sync_dac_steps, self.adc_sync_dac_dwell_time_ms = (
+            self.tab1.dac_steps,
+            self.tab1.dwell_time_ms,
+        )
 
     @pyqtSlot(bytes)
     def update_plot(self, data_raw):
@@ -160,8 +223,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self.adcreceiver.isRunning():
-            self.adcreceiver.terminate()
             self.adcreceiver.stop()
+            self.adcreceiver.wait()
 
         reset_voltage_port1 = self.tab1.get_reset_voltage()
         reset_voltage_port2 = self.tab2.get_reset_voltage()
@@ -177,8 +240,14 @@ class MainWindow(QMainWindow):
         if self.adcreceiver.isRunning():
             self.adcreceiver.stop()
         self.get_adc_config()
-        self.adcreceiver.set_parameters(self.adc_sample_rate, self.mode, self.dac_steps, self.dwell_time_ms)
+        self.adcreceiver.set_parameters(
+            self.adc_sample_rate,
+            self.mode,
+            self.adc_sync_dac_steps,
+            self.adc_sync_dac_dwell_time_ms,
+        )
         self.adcreceiver.start()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
