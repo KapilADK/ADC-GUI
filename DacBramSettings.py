@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QApplication,
 )
 from PyQt6.QtGui import QDoubleValidator
-from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtCore import pyqtSlot, pyqtSignal
 import sys
 import time
 
@@ -40,6 +40,8 @@ class StartStopButton(QPushButton):
 
 
 class DacBramSettingsTab(QGroupBox):  # QGroupBox
+    restart_adc = pyqtSignal()
+
     def __init__(self, adcreceiver, channel):
         super().__init__()
 
@@ -56,6 +58,7 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.start_V = 0
         self.stop_V = 1
         self.amplitude = 1
+        self.reset_voltage = 0
 
         self.port_layout = QHBoxLayout()
         self.setLayout(self.port_layout)
@@ -65,7 +68,7 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.start_sweep_button = StartStopButton()
         self.reset_voltage_label = QLabel("Reset Voltage")
         self.reset_voltage_edit = QLineEdit()
-        self.reset_voltage_edit.setText(str(0))
+        self.reset_voltage_edit.setText(str(self.reset_voltage))
         self.reset_voltage_edit.setValidator(
             QDoubleValidator()
         )  # only floating points are accepted for reset voltage
@@ -299,7 +302,7 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
                 self.dwell_time_ms,
                 self.channel,
             )
-            self.adcreceiver.start()
+        self.restart_adc.emit()
 
     def get_signal_info(self):
         """
