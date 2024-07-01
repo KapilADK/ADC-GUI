@@ -1,7 +1,9 @@
 import sys
+import time
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtCore import pyqtSlot
+from PyQt6.QtGui import QDoubleValidator
 from PyQt6.QtWidgets import (
     QVBoxLayout,
     QCheckBox,
@@ -14,12 +16,15 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
     QTabWidget,
+    QLineEdit,
 )
 from rp.adc.helpers import unpackADCData
+from rp.ram.config import RAM_SIZE
 from AdcReceiver import AdcReceiverThread, pita
 from rp.constants import RP_DAC_PORT_1, RP_DAC_PORT_2, ALL_BRAM_DAC_PORTS
 from DacBramSettings import StartStopButton, DacBramSettingsTab
 from source import stop_sweep
+from SignalManager import AdcSignalManager
 
 
 class MainWindow(QMainWindow):
@@ -30,10 +35,15 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
+        # default object variables for config:
         self.adc_sample_rate = None
         self.mode = None
         self.adc_sync_dac_steps = None
         self.adc_sync_dac_dwell_time_ms = None
+        self.ram_size = None
+        self.max_periods = 2621.44
+
+        self.total_samples = None
 
         self.adcreceiver = AdcReceiverThread()  # Initialize adcreceiver
         self.adcreceiver.dataReceived.connect(self.update_plot)
@@ -43,14 +53,13 @@ class MainWindow(QMainWindow):
         self.create_dac_bram_group()
         self.create_plot_widget()
 
-        # Connect signals from Adc Settings to slot
-        self.start_plot_button.clicked.connect(self.start_button_clicked)
-        self.adc_sample_rate_combobox.currentIndexChanged.connect(
-            self.update_adc_config
-        )
-        self.sync_mode_button.toggled.connect(self.update_adc_config)
+        # Initialise AdcSignalManager to connect signals and slots
+        self.AdcSignalManager = AdcSignalManager()
+        self.AdcSignalManager.connect_signals(self)
 
     def create_adc_settings_group(self):
+        """Create Adc Settings Group in GUI"""
+
         self.adc_settings_box = QGroupBox("ADC Receiver Settings")
         self.adc_settings_layout = QHBoxLayout(self.adc_settings_box)
         self.main_layout.addWidget(self.adc_settings_box)
@@ -64,8 +73,8 @@ class MainWindow(QMainWindow):
             self.create_combobox_group(
                 "ADC Sample Rate",
                 [
-                    f"{sr} MHz"
-                    for sr in [
+                    f"{sample_rate} MHz"
+                    for sample_rate in [
                         125,
                         62.5,
                         31.25,
@@ -108,18 +117,40 @@ class MainWindow(QMainWindow):
         self.sync_mode_button = self.mode_button_group.buttons()[1]
         self.adc_settings_layout.addWidget(self.mode_box)
 
-        # Not implemented right now........
-        self.time_group, self.time_menu = self.create_combobox_group(
-            "Time to write RAM in ms", [f"{time} ms" for time in [10, 20, 50, 100, 200]]
+        # Select RAM-Size
+        self.ram_size_box, self.ram_size_combobox = self.create_combobox_group(
+            "RAM Size in KB", [f"{size}" for size in [512, 256, 128, 64]]
         )
-        self.output_ram_size = QLabel()
-        self.output_ram_size_layout = QHBoxLayout()
-        self.output_ram_size_layout.addWidget(QLabel("RAM Size:"))
-        self.output_ram_size_layout.addWidget(self.output_ram_size)
-        self.time_group.layout().addLayout(self.output_ram_size_layout)
-        self.adc_settings_layout.addWidget(self.time_group)
+        self.adc_settings_layout.addWidget(self.ram_size_box)
+
+        # Groupbox to Set the number of periods and to show total periods
+        self.periods_box = QGroupBox("Periods Settings")
+        self.periods_box.setFixedWidth(400)
+        self.periods_box_layout = QVBoxLayout(self.periods_box)
+        self.input_periods_layout = QHBoxLayout()
+        self.show_periods_layout = QHBoxLayout()
+
+        self.periods_label = QLabel("Set Periods:")
+        self.periods_input = QLineEdit()
+        self.periods_input.setText(str(1000))
+        self.periods_input.setValidator(QDoubleValidator())
+        self.max_periods_label = QLabel("Max Periods:")
+        self.show_max_periods_label = QLabel(str(self.max_periods))
+
+        self.input_periods_layout.addWidget(self.periods_label)
+        self.input_periods_layout.addWidget(self.periods_input)
+
+        self.show_periods_layout.addWidget(self.max_periods_label)
+        self.show_periods_layout.addWidget(self.show_max_periods_label)
+
+        self.periods_box_layout.addLayout(self.input_periods_layout)
+        self.periods_box_layout.addLayout(self.show_periods_layout)
+
+        self.adc_settings_layout.addWidget(self.periods_box)
 
     def create_dac_bram_group(self):
+        """Integrate DacBramSettingsTab into the GUI"""
+
         self.dac_bram_group_box = QGroupBox("DAC BRAM Settings")
         self.group_layout = QVBoxLayout(self.dac_bram_group_box)
         self.main_layout.addWidget(self.dac_bram_group_box)
@@ -128,14 +159,14 @@ class MainWindow(QMainWindow):
         self.group_layout.addWidget(self.tab_widget)
 
         self.tab1 = DacBramSettingsTab(self.adcreceiver, channel=0)
-        self.tab1.restart_adc.connect(self.update_adc_config)
         self.tab2 = DacBramSettingsTab(self.adcreceiver, channel=1)
-        self.tab2.restart_adc.connect(self.update_adc_config)
 
         self.tab_widget.addTab(self.tab1, "PORT0")
         self.tab_widget.addTab(self.tab2, "PORT1")
 
     def create_plot_widget(self):
+        """Create pyqtgraph to plot the data"""
+
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.showGrid(True, True)
         self.plot_widget.setLabel("left", "Voltage", units="V")
@@ -174,7 +205,7 @@ class MainWindow(QMainWindow):
             button_group.addButton(checkbox)
             layout.addWidget(checkbox)
         return group_box, layout, button_group
-
+    
     @pyqtSlot()
     def start_button_clicked(self):
         self.start_plot_button.toggle_button()
@@ -185,9 +216,9 @@ class MainWindow(QMainWindow):
                 self.mode,
                 self.adc_sync_dac_steps,
                 self.adc_sync_dac_dwell_time_ms,
+                self.ram_size,
                 )
             self.adcreceiver.start()
-                
         else:
             self.adcreceiver.stop()
 
@@ -205,15 +236,33 @@ class MainWindow(QMainWindow):
             self.tab1.dac_steps,
             self.tab1.dwell_time_ms,
         )
+        self.get_ram_size()
+
+    def get_ram_size(self):
+        """Get the selected RAM-size"""
+
+        ram_sizes = ["KB_512", "KB_256", "KB_128", "KB_64"]
+        selected_index = self.ram_size_combobox.currentIndex()
+        selected_ram_size = ram_sizes[selected_index] 
+        self.ram_size = RAM_SIZE[selected_ram_size]
+
+    def set_max_periods(self):
+        """ Shows the max. number of Periods """
+        ram = int(self.ram_size_combobox.currentText())
+        self.total_samples = ram * 1048 / 4
+        time_per_dac_period = self.adc_sync_dac_steps * self.adc_sync_dac_dwell_time_ms * 1000
+        adc_samples_per_period = time_per_dac_period * self.adc_sample_rate
+        self.max_periods = self.total_samples / adc_samples_per_period
+        self.show_max_periods_label.setText(str(self.max_periods))
 
     @pyqtSlot(bytes)
     def update_plot(self, data_raw):
         data = unpackADCData(np.frombuffer(data_raw, dtype=np.int32), 1, rawData=False)
         self.y_data_ch1, self.y_data_ch2 = data[0], data[1]
 
-        total_samples = len(self.y_data_ch1)
-        total_time = total_samples / (self.adc_sample_rate * 1e6)
-        self.x_data = np.linspace(0, total_time, total_samples)
+        self.total_samples = len(self.y_data_ch1)
+        total_time = self.total_samples / (self.adc_sample_rate * 1e6)
+        self.x_data = np.linspace(0, total_time, self.total_samples)
 
         if self.channel_button_group.buttons()[0].isChecked():  # Channel 1
             self.plot_graph_ch1.setData(self.x_data, self.y_data_ch1)
@@ -228,7 +277,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self.adcreceiver.isRunning():
             self.adcreceiver.stop()
-            self.adcreceiver.wait()
+            self.adcreceiver.deleteLater()
 
         # reset_voltage_port1 = self.tab1.get_reset_voltage()
         # reset_voltage_port2 = self.tab2.get_reset_voltage()
@@ -238,21 +287,22 @@ class MainWindow(QMainWindow):
         pita.stop_dac_sweep(port=ALL_BRAM_DAC_PORTS)
         pita.close()
 
-        event.accpet()
+        event.accept()
 
     def restart_adc_receiver(self):
         if self.adcreceiver.isRunning():
             self.adcreceiver.stop()
+        time.sleep(0.1)
+
         self.get_adc_config()
         self.adcreceiver.set_parameters(
             self.adc_sample_rate,
             self.mode,
             self.adc_sync_dac_steps,
             self.adc_sync_dac_dwell_time_ms,
+            self.ram_size,
         )
         self.adcreceiver.start()
-            
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
