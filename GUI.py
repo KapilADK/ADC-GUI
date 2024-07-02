@@ -41,9 +41,7 @@ class MainWindow(QMainWindow):
         self.adc_sync_dac_steps = None
         self.adc_sync_dac_dwell_time_ms = None
         self.ram_size = None
-        self.max_periods = 2621.44
-
-        self.total_samples = None
+        self.max_periods = None
 
         self.adcreceiver = AdcReceiverThread()  # Initialize adcreceiver
         self.adcreceiver.dataReceived.connect(self.update_plot)
@@ -52,6 +50,7 @@ class MainWindow(QMainWindow):
         self.create_adc_settings_group()
         self.create_dac_bram_group()
         self.create_plot_widget()
+        self.set_max_periods()
 
         # Initialise AdcSignalManager to connect signals and slots
         self.AdcSignalManager = AdcSignalManager()
@@ -131,14 +130,14 @@ class MainWindow(QMainWindow):
         self.show_periods_layout = QHBoxLayout()
 
         self.periods_label = QLabel("Set Periods:")
-        self.periods_input = QLineEdit()
-        self.periods_input.setText(str(1000))
-        self.periods_input.setValidator(QDoubleValidator())
+        self.periods_edit = QLineEdit()
+        self.periods_edit.setText(str(1000))
+        self.periods_edit.setValidator(QDoubleValidator())
         self.max_periods_label = QLabel("Max Periods:")
         self.show_max_periods_label = QLabel(str(self.max_periods))
 
         self.input_periods_layout.addWidget(self.periods_label)
-        self.input_periods_layout.addWidget(self.periods_input)
+        self.input_periods_layout.addWidget(self.periods_edit)
 
         self.show_periods_layout.addWidget(self.max_periods_label)
         self.show_periods_layout.addWidget(self.show_max_periods_label)
@@ -248,11 +247,9 @@ class MainWindow(QMainWindow):
 
     def set_max_periods(self):
         """ Shows the max. number of Periods """
+        self.get_adc_config()
         ram = int(self.ram_size_combobox.currentText())
-        self.total_samples = ram * 1048 / 4
-        time_per_dac_period = self.adc_sync_dac_steps * self.adc_sync_dac_dwell_time_ms * 1000
-        adc_samples_per_period = time_per_dac_period * self.adc_sample_rate
-        self.max_periods = self.total_samples / adc_samples_per_period
+        self.max_periods = (ram * 1024 / 4) / ((self.adc_sync_dac_steps * self.adc_sync_dac_dwell_time_ms * 1e3) * self.adc_sample_rate)
         self.show_max_periods_label.setText(str(self.max_periods))
 
     @pyqtSlot(bytes)
@@ -260,9 +257,9 @@ class MainWindow(QMainWindow):
         data = unpackADCData(np.frombuffer(data_raw, dtype=np.int32), 1, rawData=False)
         self.y_data_ch1, self.y_data_ch2 = data[0], data[1]
 
-        self.total_samples = len(self.y_data_ch1)
-        total_time = self.total_samples / (self.adc_sample_rate * 1e6)
-        self.x_data = np.linspace(0, total_time, self.total_samples)
+        total_samples = len(self.y_data_ch1)
+        total_time = total_samples / (self.adc_sample_rate * 1e6)
+        self.x_data = np.linspace(0, total_time, total_samples)
 
         if self.channel_button_group.buttons()[0].isChecked():  # Channel 1
             self.plot_graph_ch1.setData(self.x_data, self.y_data_ch1)
