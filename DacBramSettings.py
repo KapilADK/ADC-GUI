@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QRadioButton,
 )
-from PyQt6.QtGui import QDoubleValidator
+from PyQt6.QtGui import QDoubleValidator, QIntValidator
 from PyQt6.QtCore import pyqtSlot, pyqtSignal
 
 
@@ -69,7 +69,6 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.update_signal_options()
         self.update_frequency_options()
         self.get_frequency_info()
-        self.show_valid_signal_frequency()
 
     def setupUI(self):
 
@@ -109,7 +108,6 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.sine_layout.addWidget(self.amplitude_edit)
         self.signal_layout.addLayout(self.sine_layout)
 
-        self.squareroot_layout = QHBoxLayout()
         self.squareroot_button = QCheckBox("Square Root")
         self.start_voltage_label = QLabel("Start Voltage:")
         self.start_voltage_edit = QLineEdit()
@@ -118,12 +116,7 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.stop_voltage_edit = QLineEdit()
         self.stop_voltage_edit.setText(str(self.stop_V))
 
-        self.squareroot_layout.addWidget(self.squareroot_button)
-        self.squareroot_layout.addWidget(self.start_voltage_label)
-        self.squareroot_layout.addWidget(self.start_voltage_edit)
-        self.squareroot_layout.addWidget(self.stop_voltage_label)
-        self.squareroot_layout.addWidget(self.stop_voltage_edit)
-        self.signal_layout.addLayout(self.squareroot_layout)
+        self.signal_layout.addWidget(self.squareroot_button)
 
         # Only floating points accepted as amplitude, start- and stopVoltage
         self.amplitude_edit.setValidator(QDoubleValidator())
@@ -144,6 +137,8 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.signal_button_group.addButton(self.sawtooth_button)
 
         # Add frequency group box to set sample rate of DAC and frequency of signal
+        self.radio_button_group = QButtonGroup(self)
+        
         self.frequency_box = QGroupBox("Frequency setter")
         self.frequency_box_layout = QVBoxLayout()
         self.frequency_box.setLayout(self.frequency_box_layout)
@@ -174,6 +169,7 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
             self.dac_sample_rate_combobox.addItem(f"{dac_sample_rate} MHz")
         self.dac_steps_label = QLabel("DAC Steps")
         self.dac_steps_edit = QLineEdit()
+        self.dac_steps_edit.setValidator(QIntValidator())
         self.dac_steps_edit.setText(str(self.dac_steps))
         self.dwell_time_ms_label = QLabel("Dwell time(ms):")
         self.show_dwell_time_ms_label = QLabel()
@@ -196,6 +192,9 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         self.signal_frequency_layout.addWidget(self.signal_frequency_combobox)
         self.signal_frequency_layout.addWidget(self.max_dac_steps_label)
 
+        self.radio_button_group.addButton(self.dac_sample_rate_button)
+        self.radio_button_group.addButton(self.signal_frequency_button)
+
         self.frequency_box_layout.addLayout(self.dac_sample_rate_layout)
         self.frequency_box_layout.addLayout(self.signal_frequency_layout)
 
@@ -208,6 +207,93 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
         """get current reset voltage"""
 
         self.reset_voltage = float(self.reset_voltage_edit.text())
+
+    def get_signal_info(self):
+        """
+        Get selected signal type and its parameters.
+        """
+
+        if self.sine_button.isChecked():
+            self.signal_type = "Sine"
+            self.amplitude = float(self.amplitude_edit.text())
+        else:
+            if self.squareroot_button.isChecked():
+                self.signal_type = "Square Root"
+            else:
+                self.signal_type = "Sawtooth"
+
+            self.start_V = float(self.start_voltage_edit.text())
+            self.stop_V = float(self.stop_voltage_edit.text())
+
+    def get_dac_steps(self):
+        try:
+            self.dac_steps = int(self.dac_steps_edit.text())
+        except ValueError:
+            return False
+    
+    @pyqtSlot(str)
+    def validate_dac_steps(self, text):
+        if text and int(text) > 16000:
+            # Revert the input to the previous valid state
+            cursor_position = self.dac_steps_edit.cursorPosition()
+            self.dac_steps_edit.setText(text[:-1])
+            self.dac_steps_edit.setCursorPosition(cursor_position - 1)
+        
+    def show_valid_signal_frequency(self):
+        self.signal_frequency_combobox.clear()  # Clear previous items
+
+        self.get_dac_steps()
+        signal_frequencies = []
+        for dac_sample_rate in self.dac_sample_rates:
+            signal_frequency = (dac_sample_rate * 1e6) / self.dac_steps
+            signal_frequencies.append(signal_frequency)
+        
+        for frequency in signal_frequencies:
+            #print(signal_frequency)
+            self.signal_frequency_combobox.addItem(f"{frequency} Hz")
+
+    def get_frequency_info(self):
+        """Get dwell time and DAC steps to configure sample rate of DAC."""
+
+        if self.dac_sample_rate_button.isChecked():
+            self.dac_sample_rate = float(
+                self.dac_sample_rate_combobox.currentText().split()[0]
+            )
+            self.dwell_time_ms = 1 / (self.dac_sample_rate * 1e3)
+        elif self.signal_frequency_button.isChecked():
+            signal_frequency = float(
+                self.signal_frequency_combobox.currentText().split()[0]
+            )
+
+            self.dwell_time_ms = 1000/(signal_frequency * self.dac_steps)
+
+        self.show_dwell_time_ms_label.setText(str(self.dwell_time_ms))
+
+    
+    def update_signal_options(self):
+        if self.sine_button.isChecked():
+            self.amplitude_label.setVisible(True)
+            self.amplitude_edit.setVisible(True)
+            self.start_voltage_label.setVisible(False)
+            self.start_voltage_edit.setVisible(False)
+            self.stop_voltage_label.setVisible(False)
+            self.stop_voltage_edit.setVisible(False)
+        else:
+            self.amplitude_label.setVisible(False)
+            self.amplitude_edit.setVisible(False)
+            self.start_voltage_label.setVisible(True)
+            self.start_voltage_edit.setVisible(True)
+            self.stop_voltage_label.setVisible(True)
+            self.stop_voltage_edit.setVisible(True)
+
+    def update_frequency_options(self):
+        if self.dac_sample_rate_button.isChecked():
+            self.dac_sample_rate_combobox.setVisible(True)
+            self.signal_frequency_combobox.setVisible(False)
+        else:
+            self.dac_sample_rate_combobox.setVisible(False)
+            self.signal_frequency_combobox.setVisible(True)
+
 
     @pyqtSlot()
     def sweep_button_clicked(self):
@@ -257,87 +343,3 @@ class DacBramSettingsTab(QGroupBox):  # QGroupBox
                 self.channel,
             )
         self.update_adc.emit()
-
-    def get_signal_info(self):
-        """
-        Get selected signal type and its parameters.
-        """
-
-        if self.sine_button.isChecked():
-            self.signal_type = "Sine"
-            self.amplitude = float(self.amplitude_edit.text())
-        else:
-            if self.squareroot_button.isChecked():
-                self.signal_type = "Square Root"
-                self.start_V = float(self.start_voltage_edit.text())
-                self.stop_V = float(self.stop_voltage_edit.text())
-            else:
-                if self.sawtooth_button.isChecked():
-                    self.signal_type = "Sawtooth"
-                    self.start_V = float(self.start_voltage_edit.text())
-                    self.stop_V = float(self.stop_voltage_edit.text())
-
-    def get_dac_steps(self):
-        try:
-            self.dac_steps = int(self.dac_steps_edit.text())
-        except ValueError:
-            return False
-
-    def show_valid_signal_frequency(self):
-        
-        self.signal_frequency_combobox.clear()  # Clear previous items
-        self.get_dac_steps()
-        valid_frequencies = []
-        for dac_sample_rate in self.dac_sample_rates:
-            valid_frequency = (dac_sample_rate * 1e6) / self.dac_steps
-            valid_frequencies.append(f"{valid_frequency:.2f} Hz")
-        self.signal_frequency_combobox.addItems(valid_frequencies)
-
-    def get_frequency_info(self):
-        """Get dwell time and DAC steps to configure sample rate of DAC."""
-
-        if self.dac_sample_rate_button.isChecked():
-            self.dac_sample_rate = float(
-                self.dac_sample_rate_combobox.currentText().split()[0]
-            )
-            self.dwell_time_ms = 1 / (self.dac_sample_rate * 1e3)
-        elif self.signal_frequency_button.isChecked():
-            signal_frequency = float(
-                self.signal_frequency_combobox.currentText().split()[0]
-            )
-
-            self.dwell_time_ms = 1000/(signal_frequency * self.dac_steps)
-
-        self.show_dwell_time_ms_label.setText(str(self.dwell_time_ms))
-
-    @pyqtSlot(str)
-    def validate_dac_steps(self, text):
-        if text and int(text) > 16000:
-            # Revert the input to the previous valid state
-            cursor_position = self.dac_steps_edit.cursorPosition()
-            self.dac_steps_edit.setText(text[:-1])
-            self.dac_steps_edit.setCursorPosition(cursor_position - 1)
-
-    def update_signal_options(self):
-        if self.sine_button.isChecked():
-            self.amplitude_label.setVisible(True)
-            self.amplitude_edit.setVisible(True)
-            self.start_voltage_label.setVisible(False)
-            self.start_voltage_edit.setVisible(False)
-            self.stop_voltage_label.setVisible(False)
-            self.stop_voltage_edit.setVisible(False)
-        else:
-            self.amplitude_label.setVisible(False)
-            self.amplitude_edit.setVisible(False)
-            self.start_voltage_label.setVisible(True)
-            self.start_voltage_edit.setVisible(True)
-            self.stop_voltage_label.setVisible(True)
-            self.stop_voltage_edit.setVisible(True)
-
-    def update_frequency_options(self):
-        if self.dac_sample_rate_button.isChecked():
-            self.dac_sample_rate_combobox.setVisible(True)
-            self.signal_frequency_combobox.setVisible(False)
-        else:
-            self.dac_sample_rate_combobox.setVisible(False)
-            self.signal_frequency_combobox.setVisible(True)
