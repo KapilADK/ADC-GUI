@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QPushButton,
-    QApplication,
-    QMainWindow,
+    QButtonGroup,
+    QCheckBox,
     QVBoxLayout,
     QHBoxLayout,
     QComboBox,
@@ -10,13 +10,44 @@ from PyQt6.QtWidgets import (
     QLabel,
     QRadioButton,
 )
-from PyQt6.QtGui import QIntValidator
-from PyQt6.QtCore import pyqtSlot
-import sys
+from PyQt6.QtGui import QIntValidator, QDoubleValidator
+from PyQt6.QtCore import pyqtSlot, pyqtSignal
 
-class DacBramSettingsTab(QGroupBox):
+from source import initDacBram, stop_sweep
+from AdcReceiver import pita, AdcReceiverThread
+from SignalManager import DacSignalManager
+
+MHZ_MAX_DAC_FREQ = 125
+
+class StartStopButton(QPushButton):
     def __init__(self):
         super().__init__()
+        self.setText("Start")
+        self.setCheckable(True)
+        self.setStyleSheet("QPushButton {background-color: green;}")
+        self.setFixedSize(50, 30)
+
+    def toggle_button(self):
+        if self.isChecked():
+            self.setText("Stop")
+            self.setStyleSheet(f"QPushButton {{background-color: red;}}")
+        else:
+            self.setText("Start")
+            self.setStyleSheet(f"QPushButton {{background-color: green;}}")
+
+
+
+class DacBramSettingsTab(QGroupBox):
+    update_adc = pyqtSignal()
+
+    def __init__(self, adcreceiver: AdcReceiverThread, channel):
+        super().__init__()
+
+        # adcReceiverObject:
+        self.adcreceiver = adcreceiver
+
+        # bram-dac channel
+        self.channel = channel
 
         # default object variables for config:
         self.dwell_time_ms = "8e-06"
@@ -25,21 +56,84 @@ class DacBramSettingsTab(QGroupBox):
         self.start_V = 0
         self.stop_V = 1
         self.amplitude = 1
+        self.reset_voltage = 0
 
         self.setupUI()
-        self.update_frequency_options()
 
-        # Signal slot connections
-        self.dac_steps_edit.textChanged.connect(self.validate_dac_steps)
-        self.dac_sample_rate_button.clicked.connect(self.update_dac_config)
-        self.signal_frequency_button.clicked.connect(self.update_dac_config)
-        self.dac_sample_rate_combobox.currentIndexChanged.connect(self.update_dac_config)
-        self.dac_steps_edit.returnPressed.connect(self.update_dac_config)
-        self.signal_frequency_combobox.currentIndexChanged.connect(self.get_frequency_info)
+        # Initialise SignalManager to connect signals and slots
+        self.DacSignalManager = DacSignalManager()
+        self.DacSignalManager.connect_signals(self)
+
+        # Display settings as soon as the GUI starts
+        self.update_frequency_options()
+        self.update_signal_options()
+        self.get_frequency_info()
 
     def setupUI(self):
         self.port_layout = QHBoxLayout()
         self.setLayout(self.port_layout)
+
+        # First column of the Dac Bram Setting Groupbox
+        self.first_column = QVBoxLayout()
+        self.start_sweep_button = StartStopButton()
+        self.reset_voltage_label = QLabel("Reset Voltage")
+        self.reset_voltage_edit = QLineEdit()
+        self.reset_voltage_edit.setText(str(self.reset_voltage))
+        self.reset_voltage_edit.setValidator(
+            QDoubleValidator()
+        )  # only floating points are accepted for reset voltage
+        self.first_column.addWidget(self.start_sweep_button)
+        self.first_column.addWidget(self.reset_voltage_label)
+        self.first_column.addWidget(self.reset_voltage_edit)
+
+        # Signal type checkboxes with additional inputs
+        self.signal_box = QGroupBox("Signal Type and Parameters")
+        self.signal_layout = QVBoxLayout()
+        self.signal_button_group = QButtonGroup(self)
+        self.signal_box.setLayout(self.signal_layout)
+
+        # Create horizontal layout for each signal type and its parameters
+        self.sine_layout = QHBoxLayout()
+        self.sine_button = QCheckBox("Sine")
+        self.sine_button.setChecked(True)
+        self.amplitude_label = QLabel("Amplitude:")
+        self.amplitude_edit = QLineEdit()
+
+        self.amplitude_edit.setText(str(self.amplitude))
+
+        self.sine_layout.addWidget(self.sine_button)
+        self.sine_layout.addWidget(self.amplitude_label)
+        self.sine_layout.addWidget(self.amplitude_edit)
+        self.signal_layout.addLayout(self.sine_layout)
+
+        self.squareroot_button = QCheckBox("Square Root")
+        self.start_voltage_label = QLabel("Start Voltage:")
+        self.start_voltage_edit = QLineEdit()
+        self.start_voltage_edit.setText(str(self.start_V))
+        self.stop_voltage_label = QLabel("Stop Voltage:")
+        self.stop_voltage_edit = QLineEdit()
+        self.stop_voltage_edit.setText(str(self.stop_V))
+
+        self.signal_layout.addWidget(self.squareroot_button)
+
+        # Only floating points accepted as amplitude, start- and stopVoltage
+        self.amplitude_edit.setValidator(QDoubleValidator())
+        self.start_voltage_edit.setValidator(QDoubleValidator())
+        self.stop_voltage_edit.setValidator(QDoubleValidator())
+
+        self.sawtooth_layout = QHBoxLayout()
+        self.sawtooth_button = QCheckBox("Sawtooth")
+        self.sawtooth_layout.addWidget(self.sawtooth_button)
+        self.sawtooth_layout.addWidget(self.start_voltage_label)
+        self.sawtooth_layout.addWidget(self.start_voltage_edit)
+        self.sawtooth_layout.addWidget(self.stop_voltage_label)
+        self.sawtooth_layout.addWidget(self.stop_voltage_edit)
+        self.signal_layout.addLayout(self.sawtooth_layout)
+
+        self.signal_button_group.addButton(self.sine_button)
+        self.signal_button_group.addButton(self.squareroot_button)
+        self.signal_button_group.addButton(self.sawtooth_button)
+
 
         # Add frequency group box to set sample rate of DAC and frequency of signal
         self.frequency_box = QGroupBox("Frequency setter")
@@ -87,7 +181,31 @@ class DacBramSettingsTab(QGroupBox):
         self.frequency_box_layout.addLayout(self.signal_frequency_layout)
 
         # Add each box/layout to the Port layout
+        self.port_layout.addLayout(self.first_column)
+        self.port_layout.addWidget(self.signal_box)
         self.port_layout.addWidget(self.frequency_box)
+
+    def get_reset_voltage(self):
+        """get current reset voltage"""
+
+        self.reset_voltage = float(self.reset_voltage_edit.text())
+
+    def get_signal_info(self):
+        """
+        Get selected signal type and its parameters.
+        """
+
+        if self.sine_button.isChecked():
+            self.signal_type = "Sine"
+            self.amplitude = float(self.amplitude_edit.text())
+        else:
+            if self.squareroot_button.isChecked():
+                self.signal_type = "Square Root"
+            else:
+                self.signal_type = "Sawtooth"
+
+            self.start_V = float(self.start_voltage_edit.text())
+            self.stop_V = float(self.stop_voltage_edit.text())
 
     def update_frequency_options(self):
         if self.dac_sample_rate_button.isChecked():
@@ -96,6 +214,22 @@ class DacBramSettingsTab(QGroupBox):
         else:
             self.dac_sample_rate_combobox.setVisible(False)
             self.signal_frequency_combobox.setVisible(True)
+    
+    def update_signal_options(self):
+        if self.sine_button.isChecked():
+            self.amplitude_label.setVisible(True)
+            self.amplitude_edit.setVisible(True)
+            self.start_voltage_label.setVisible(False)
+            self.start_voltage_edit.setVisible(False)
+            self.stop_voltage_label.setVisible(False)
+            self.stop_voltage_edit.setVisible(False)
+        else:
+            self.amplitude_label.setVisible(False)
+            self.amplitude_edit.setVisible(False)
+            self.start_voltage_label.setVisible(True)
+            self.start_voltage_edit.setVisible(True)
+            self.stop_voltage_label.setVisible(True)
+            self.stop_voltage_edit.setVisible(True)
 
     def validate_dac_steps(self, text):
         if text and int(text) > 16000:
@@ -125,27 +259,49 @@ class DacBramSettingsTab(QGroupBox):
             for frequency in signal_frequencies:
                 self.signal_frequency_combobox.addItem(frequency)
 
+    @pyqtSlot()
+    def sweep_button_clicked(self):
+        self.start_sweep_button.toggle_button()
+        if self.start_sweep_button.isChecked():
+            if self.adcreceiver.isRunning:
+                self.adcreceiver.stop()
+
+            self.get_signal_info()
+            self.get_frequency_info()
+            initDacBram(
+                pita,
+                self.signal_type,
+                self.amplitude,
+                self.start_V,
+                self.stop_V,
+                self.dac_steps,
+                self.dwell_time_ms,
+                self.channel,
+            )
+        else:
+            self.get_reset_voltage()
+            stop_sweep(pita, self.channel, self.reset_voltage)
+        self.update_adc.emit()
+
+    @pyqtSlot()
     def update_dac_config(self):
-
+        self.update_signal_options()
         self.update_frequency_options()
-        self.show_signal_frequency()
         self.get_frequency_info()
+        
+        if self.start_sweep_button.isChecked():
+            if self.adcreceiver.isRunning():
+                self.adcreceiver.stop()
 
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-
-    # Create the main window
-    main_window = QMainWindow()
-    main_window.setWindowTitle("DAC Bram Settings")
-
-    # Create an instance of DacBramSettingsTab
-    dac_bram_settings_tab = DacBramSettingsTab()
-
-    # Set the DacBramSettingsTab as the central widget of the main window
-    main_window.setCentralWidget(dac_bram_settings_tab)
-
-    # Show the main window
-    main_window.show()
-
-    sys.exit(app.exec())
+            self.get_signal_info()
+            initDacBram(
+                pita,
+                self.signal_type,
+                self.amplitude,
+                self.start_V,
+                self.stop_V,
+                self.dac_steps,
+                self.dwell_time_ms,
+                self.channel,
+            )
+        self.update_adc.emit()
