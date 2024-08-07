@@ -26,8 +26,6 @@ class DacBramSettingsTab(QGroupBox):
         self.stop_V = 1
         self.amplitude = 1
 
-        self.updating = False  # Flag to prevent recursion
-
         self.setupUI()
         self.update_frequency_options()
 
@@ -128,16 +126,11 @@ class DacBramSettingsTab(QGroupBox):
                 self.signal_frequency_combobox.addItem(frequency)
 
     def update_dac_config(self):
-        if self.updating:
-            return
-
-        self.updating = True
 
         self.update_frequency_options()
         self.show_signal_frequency()
         self.get_frequency_info()
 
-        self.updating = False
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
