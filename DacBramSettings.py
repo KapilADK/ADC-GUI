@@ -158,7 +158,7 @@ class DacBramSettingsTab(QGroupBox):
         self.dwell_time_ms_label = QLabel("Dwell time(ms):")
         self.show_dwell_time_ms_label = QLabel()
         self.show_dwell_time_ms_label.setText(str(self.dwell_time_ms))
-        self.dwell_time_ms_list = [0.000008, 0.000016, 0.000032, 0.00004, 0.000034, 0.00008, 0.000128, 0.00016, 0.0002, 0.000256, 0.00032, 0.0004, 0.0008, 0.001, 0.0016, 0.002]
+        self.dwell_time_ms_list = [8e-06, 1.6e-05, 3.2e-05, 4e-05, 6.4e-05, 8e-05, 0.000128, 0.00016, 0.0002, 0.000256, 0.00032, 0.0004, 0.0008, 0.001, 0.0016, 0.002]
 
         self.dac_sample_rate_layout.addWidget(self.dac_sample_rate_button)
         self.dac_sample_rate_layout.addWidget(self.dac_sample_rate_combobox)
@@ -254,10 +254,18 @@ class DacBramSettingsTab(QGroupBox):
             self.dac_steps = int(self.dac_steps_edit.text())
             signal_frequencies = []
             for dac_sample_rate in self.dac_sample_rates:
-                signal_frequency = float(dac_sample_rate * 1e6) / self.dac_steps
-                signal_frequencies.append(f"{signal_frequency:.2f} Hz")
-            for frequency in signal_frequencies:
-                self.signal_frequency_combobox.addItem(frequency)
+                signal_frequency = self.abbreviate_frequency(float(dac_sample_rate * 1e6) / self.dac_steps)
+                signal_frequencies.append(signal_frequency)
+            #for frequency in signal_frequencies:
+            self.signal_frequency_combobox.addItems(signal_frequencies)
+
+    def abbreviate_frequency(self, frequency_hz):
+        if frequency_hz >= 1000000:
+            return f"{frequency_hz / 1000000:.2f} MHz"
+        elif frequency_hz >= 1000:
+            return f"{frequency_hz / 1000:.2f} KHz"
+        else:
+            return f"{frequency_hz:.2f} Hz"
 
     @pyqtSlot()
     def sweep_button_clicked(self):
